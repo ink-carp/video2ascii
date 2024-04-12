@@ -75,6 +75,8 @@ pub fn send_ascii(mut stream:TcpStream,ascii_dir:&str){
         sleep(std::time::Duration::from_millis(100));
         //print!("\x1b[2J");
     }
+    stream.shutdown(std::net::Shutdown::Both).expect("Failed to shutdown stream");
+    
 }
 fn image2color(image_path:&Path,target_dir:&str){
     let img = ImageReader::open(image_path).unwrap()
