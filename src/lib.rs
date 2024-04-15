@@ -1,8 +1,31 @@
 use std::{fs, io::Write, net::TcpStream, path::Path, thread::{sleep, JoinHandle}};
 use image::{imageops::FilterType, io::Reader as ImageReader, GenericImageView, Pixel};
-
+pub const IMAGE_DIR:&str = "chicken_image";
+pub const ASCII_DIR:&str = "chicken_ascii";
+pub const VIDEO_PATH:&str = "chicken.mp4";
+/// mode true is rgb ascii
+/// mode false is gray ascii
+pub fn init(mode:bool){
+    //you should cargo add crossterm
+    //Enable raw mode for shouw the ansi
+    crossterm::terminal::enable_raw_mode().unwrap();
+    if is_dir_empty(IMAGE_DIR){
+        println!("正在将视频分割为图片...");
+        video_spilt2frame(VIDEO_PATH, IMAGE_DIR);
+        println!("图片分割完成!");
+    }
+    if is_dir_empty(ASCII_DIR){
+        println!("正在将图片转换为字符画...");
+        images2ascii(IMAGE_DIR, ASCII_DIR,mode);
+        println!("字符画转换完成!");
+    }
+}
 /// To use thios function,you must insure that you have installed ffmpeg
-pub fn video_spilt2frame(video_path: &str, output_path: &str) {
+fn video_spilt2frame(video_path: &str, output_path: &str) {
+    if fs::File::open(video_path).is_err() {
+        eprintln!("Video file not found!");
+        return;
+    }
     let status = std::process::Command::new("ffmpeg")
     .arg("-i")
     .arg(video_path)
@@ -16,7 +39,7 @@ pub fn video_spilt2frame(video_path: &str, output_path: &str) {
         eprintln!("Command executed with error code {}", status.code().unwrap_or(1));
     }
 }
-pub fn images2ascii(images_dir:&str,target_dir:&str,mode:bool){
+fn images2ascii(images_dir:&str,target_dir:&str,mode:bool){
     let paths = std::fs::read_dir(images_dir).unwrap();
     let mut files = paths.map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
     files.sort();
@@ -62,7 +85,7 @@ pub fn read_ascii(ascii_dir:&str){
         //print!("\x1b[2J");
     }
 }
-pub fn send_ascii(mut stream:TcpStream,ascii_dir:&str){
+fn send_ascii(mut stream:TcpStream,ascii_dir:&str){
     let temp = fs::read_dir(ascii_dir).unwrap();
     let mut files = temp.map(|e| e.unwrap().path()).collect::<Vec<_>>();
     files.sort();
@@ -77,6 +100,25 @@ pub fn send_ascii(mut stream:TcpStream,ascii_dir:&str){
     }
     stream.shutdown(std::net::Shutdown::Both).expect("Failed to shutdown stream");
     
+}
+pub fn start_server(ip:&str,port:u16){
+    use std::net::TcpListener;
+    use std::thread;
+    let listener = TcpListener::bind(format!("{}:{}",ip,port)).expect("Could not bind");
+        println!("Server Listening...");
+        for stream in listener.incoming(){
+            match stream {
+                Ok(stream) => {
+                    println!("Connection established From: {}", stream.peer_addr().unwrap());
+                    thread::spawn(move || {
+                        send_ascii(stream, ASCII_DIR);
+                    });
+                },
+                Err(e)=>{
+                    eprintln!("Failed to accept connection: {}", e);
+                }
+            }
+    }
 }
 fn image2color(image_path:&Path,target_dir:&str){
     let img = ImageReader::open(image_path).unwrap()
@@ -145,4 +187,20 @@ fn grayscale2ascii(gray:u8)->char{
 }
 fn rgb2ansi(r:u8,g:u8,b:u8)->String{
     format!("\x1b[38;2;{};{};{}m", r, g, b)
+}
+fn is_dir_empty(dir:&str)->bool{
+    match fs::metadata(dir){
+        Ok(metadata) => {
+            if metadata.is_dir(){
+                let mut dir_entries = fs::read_dir(dir).unwrap();
+                dir_entries.next().is_none()
+            } else {
+                panic!("{} is not a directory", dir);
+            }
+        },
+        Err(_) => {
+            fs::create_dir_all(dir).unwrap();
+            true
+        }
+    }   
 }
